@@ -1,115 +1,157 @@
+/* -----------------------------------------------------------
+ * :: :  G  H  O  S  T  :                                   ::
+ * -----------------------------------------------------------
+ * @wabistudios :: cosmos :: realms
+ *
+ * CREDITS.
+ *
+ * T.Furby              @furby-tm       <devs@wabi.foundation>
+ * D.Kirkpatrick  @dkirkpatrick99  <d.kirkpatrick99@gmail.com>
+ *
+ *         Copyright (C) 2023 Wabi Animation Studios, Ltd. Co.
+ *                                        All Rights Reserved.
+ * -----------------------------------------------------------
+ *  . x x x . o o o . x x x . : : : .    o  x  o    . : : : .
+ * ----------------------------------------------------------- */
+
 import FluentKit
-import MongoKitten
 import MongoCore
+import MongoKitten
 
-extension DatabaseID {
-    public static var mongo: DatabaseID {
-        return .init(string: "mongo")
-    }
+public extension DatabaseID
+{
+  static var mongo: DatabaseID
+  {
+    .init(string: "mongo")
+  }
 }
 
-struct FluentMongoDatabase: Database, MongoDatabaseRepresentable {
-    let cluster: MongoCluster
-    let raw: MongoDatabase
-    let context: DatabaseContext
-    let inTransaction: Bool
+struct FluentMongoDatabase: Database, MongoDatabaseRepresentable
+{
+  let cluster: MongoCluster
+  let raw: MongoDatabase
+  let context: DatabaseContext
+  let inTransaction: Bool
 
-    func execute(
-        query: DatabaseQuery,
-        onOutput: @escaping (DatabaseOutput) -> ()
-    ) -> EventLoopFuture<Void> {
-        switch query.action {
-        case .create:
-            return self.create(query: query, onOutput: onOutput)
-        case .aggregate(let aggregate):
-            return self.aggregate(query: query, aggregate: aggregate, onOutput: onOutput)
-        case .read where query.joins.isEmpty:
-            return self.read(query: query, onOutput: onOutput)
-        case .read:
-            return self.join(query: query, onOutput: onOutput)
-        case .update:
-            return self.update(query: query, onOutput: onOutput)
-        case .delete:
-            return self.delete(query: query, onOutput: onOutput)
-        case .custom:
-            return self.eventLoop.makeFailedFuture(FluentMongoError.unsupportedCustomAction)
-        }
+  func execute(
+    query: DatabaseQuery,
+    onOutput: @escaping (DatabaseOutput) -> Void
+  ) -> EventLoopFuture<Void>
+  {
+    switch query.action
+    {
+      case .create:
+        return create(query: query, onOutput: onOutput)
+      case let .aggregate(aggregate):
+        return self.aggregate(query: query, aggregate: aggregate, onOutput: onOutput)
+      case .read where query.joins.isEmpty:
+        return read(query: query, onOutput: onOutput)
+      case .read:
+        return join(query: query, onOutput: onOutput)
+      case .update:
+        return update(query: query, onOutput: onOutput)
+      case .delete:
+        return delete(query: query, onOutput: onOutput)
+      case .custom:
+        return eventLoop.makeFailedFuture(FluentMongoError.unsupportedCustomAction)
     }
+  }
 
-    func execute(enum: DatabaseEnum) -> EventLoopFuture<Void> {
-        self.raw.eventLoop.makeSucceededFuture(())
-    }
+  func execute(enum _: DatabaseEnum) -> EventLoopFuture<Void>
+  {
+    eventLoop.makeSucceededFuture(())
+  }
 
-    func withConnection<T>(_ closure: @escaping (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T> {
-        closure(self)
-    }
+  func withConnection<T>(_ closure: @escaping (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T>
+  {
+    closure(self)
+  }
 }
 
-struct FluentMongoDriver: DatabaseDriver {
-    func makeDatabase(with context: DatabaseContext) -> Database {
-        FluentMongoDatabase(
-            cluster: self.cluster,
-            raw: self.cluster[self.targetDatabase].hopped(to: context.eventLoop),
-            context: context,
-            inTransaction: false
-        )
-    }
-    
-    let cluster: MongoCluster
-    let targetDatabase: String
+struct FluentMongoDriver: DatabaseDriver
+{
+  func makeDatabase(with context: DatabaseContext) -> Database
+  {
+    FluentMongoDatabase(
+      cluster: cluster,
+      raw: cluster[targetDatabase],
+      context: context,
+      inTransaction: false
+    )
+  }
 
-    func shutdown() {
-        self.cluster.disconnect()
+  let cluster: MongoCluster
+  let targetDatabase: String
+
+  func shutdown()
+  {
+    Task.init
+    {
+      await cluster.disconnect()
     }
+  }
 }
 
-public protocol MongoDatabaseRepresentable {
-    var raw: MongoDatabase { get }
+public protocol MongoDatabaseRepresentable
+{
+  var raw: MongoDatabase { get }
 }
 
-struct FluentMongoConfiguration: DatabaseConfiguration {
-    let settings: ConnectionSettings
-    let targetDatabase: String
-    var middleware: [AnyModelMiddleware]
+struct FluentMongoConfiguration: DatabaseConfiguration
+{
+  let settings: ConnectionSettings
+  let targetDatabase: String
+  var middleware: [AnyModelMiddleware]
 
-    func makeDriver(for databases: Databases) -> DatabaseDriver {
-        do {
-            let cluster = try MongoCluster(lazyConnectingTo: self.settings, on: databases.eventLoopGroup)
-            return FluentMongoDriver(
-                cluster: cluster,
-                targetDatabase: self.targetDatabase
-            )
-        } catch {
-            fatalError("The MongoDB connection specification was malformed")
-        }
+  func makeDriver(for _: Databases) -> DatabaseDriver
+  {
+    do
+    {
+      let cluster = try MongoCluster(lazyConnectingTo: settings)
+      return FluentMongoDriver(
+        cluster: cluster,
+        targetDatabase: targetDatabase
+      )
     }
+    catch
+    {
+      fatalError("The MongoDB connection specification was malformed")
+    }
+  }
 }
 
-extension DatabaseConfigurationFactory {
-    public static func mongo(
-        connectionString: String
-    ) throws -> Self {
-        return try .mongo(settings: ConnectionSettings(connectionString))
+public extension DatabaseConfigurationFactory
+{
+  static func mongo(
+    connectionString: String
+  ) throws -> Self
+  {
+    try .mongo(settings: ConnectionSettings(connectionString))
+  }
+
+  static func mongo(
+    settings: ConnectionSettings
+  ) throws -> Self
+  {
+    guard !settings.hosts.isEmpty
+    else
+    {
+      throw FluentMongoError.missingHosts
     }
 
-    public static func mongo(
-        settings: ConnectionSettings
-    ) throws -> Self {
-        guard settings.hosts.count > 0 else {
-            throw FluentMongoError.missingHosts
-        }
-
-        guard let targetDatabase = settings.targetDatabase else {
-            throw FluentMongoError.noTargetDatabaseSpecified
-        }
-
-        return .init {
-            FluentMongoConfiguration(
-                settings: settings,
-                targetDatabase:
-                targetDatabase, middleware: []
-            )
-        }
+    guard let targetDatabase = settings.targetDatabase
+    else
+    {
+      throw FluentMongoError.noTargetDatabaseSpecified
     }
+
+    return .init
+    {
+      FluentMongoConfiguration(
+        settings: settings,
+        targetDatabase:
+        targetDatabase, middleware: []
+      )
+    }
+  }
 }
-

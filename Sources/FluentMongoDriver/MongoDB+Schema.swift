@@ -1,75 +1,113 @@
+/* -----------------------------------------------------------
+ * :: :  G  H  O  S  T  :                                   ::
+ * -----------------------------------------------------------
+ * @wabistudios :: cosmos :: realms
+ *
+ * CREDITS.
+ *
+ * T.Furby              @furby-tm       <devs@wabi.foundation>
+ * D.Kirkpatrick  @dkirkpatrick99  <d.kirkpatrick99@gmail.com>
+ *
+ *         Copyright (C) 2023 Wabi Animation Studios, Ltd. Co.
+ *                                        All Rights Reserved.
+ * -----------------------------------------------------------
+ *  . x x x . o o o . x x x . : : : .    o  x  o    . : : : .
+ * ----------------------------------------------------------- */
+
 import FluentKit
-import MongoKitten
+import Foundation
 import MongoCore
+import MongoKitten
 
-extension FluentMongoDatabase {
-    func execute(schema: DatabaseSchema) -> EventLoopFuture<Void> {
-        switch schema.action {
-        case .create, .update:
-            return self.update(schema: schema)
-        case .delete:
-            return self.delete(schema: schema)
-        }
+extension FluentMongoDatabase
+{
+  func execute(schema: DatabaseSchema) -> EventLoopFuture<Void>
+  {
+    switch schema.action
+    {
+      case .create, .update:
+        return update(schema: schema)
+      case .delete:
+        return delete(schema: schema)
     }
+  }
 
-    private func update(schema: DatabaseSchema) -> EventLoopFuture<Void> {
-        do {
-            var futures = [EventLoopFuture<Void>]()
+  private func update(schema: DatabaseSchema) -> EventLoopFuture<Void>
+  {
+    do
+    {
+      var futures = [EventLoopFuture<Void>]()
 
-            nextConstraint: for constraint in schema.createConstraints {
-                guard case .constraint(let algorithm, _) = constraint else {
-                    continue nextConstraint
-                }
-                switch algorithm {
-                case .unique(let fields), .compositeIdentifier(let fields):
-                    let indexKeys = try fields.map { field -> String in
-                        switch field {
-                        case .key(let key):
-                            return key.makeMongoKey()
-                        case .custom:
-                            throw FluentMongoError.invalidIndexKey
-                        }
-                    }
-
-                    var keys = Document()
-
-                    for key in indexKeys {
-                        keys[key] = SortOrder.ascending.rawValue
-                    }
-
-                    var index = CreateIndexes.Index(
-                        named: "unique",
-                        keys: keys
-                    )
-
-                    index.unique = true
-
-                    let createIndexes = CreateIndexes(
-                        collection: schema.schema,
-                        indexes: [index]
-                    )
-
-                    let createdIndex = cluster.next(for: .init(writable: false)).flatMap { connection in
-                        return connection.executeCodable(
-                            createIndexes,
-                            namespace: MongoNamespace(to: "$cmd", inDatabase: self.raw.name),
-                            sessionId: nil
-                        )
-                    }.hop(to: eventLoop).map { _ in }
-
-                    futures.append(createdIndex)
-                case .foreignKey, .custom:
-                    continue nextConstraint
-                }
+      nextConstraint: for constraint in schema.createConstraints
+      {
+        guard case let .constraint(algorithm, _) = constraint
+        else
+        {
+          continue nextConstraint
+        }
+        switch algorithm
+        {
+          case let .unique(fields), let .compositeIdentifier(fields):
+            let indexKeys = try fields.map
+            { field -> String in
+              switch field
+              {
+                case let .key(key):
+                  return key.makeMongoKey()
+                case .custom:
+                  throw FluentMongoError.invalidIndexKey
+              }
             }
 
-            return EventLoopFuture.andAllSucceed(futures, on: eventLoop)
-        } catch {
-            return eventLoop.makeFailedFuture(error)
-        }
-    }
+            var keys = Document()
 
-    private func delete(schema: DatabaseSchema) -> EventLoopFuture<Void> {
-        self.raw[schema.schema].drop()
+            for key in indexKeys
+            {
+              keys[key] = SortOrder.forward.hashValue
+            }
+
+            var index = CreateIndexes.Index(
+              named: "unique",
+              keys: keys
+            )
+
+            index.unique = true
+
+            let createIndexes = CreateIndexes(
+              collection: schema.schema,
+              indexes: [index]
+            )
+
+            let createdIndex = eventLoop.makeFutureWithTask
+            {
+              let _ = try await cluster.next(for: .writable)
+                .executeCodable(
+                  createIndexes,
+                  decodeAs: InsertCommand.self,
+                  namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
+                  sessionId: nil
+                )
+            }
+
+            futures.append(createdIndex)
+          case .foreignKey, .custom:
+            continue nextConstraint
+        }
+      }
+
+      return EventLoopFuture.andAllSucceed(futures, on: eventLoop)
     }
+    catch
+    {
+      return eventLoop.makeFailedFuture(error)
+    }
+  }
+
+  private func delete(schema: DatabaseSchema) -> EventLoopFuture<Void>
+  {
+    eventLoop.makeFutureWithTask
+    {
+      try await raw[schema.schema].drop()
+    }
+  }
 }
