@@ -20,15 +20,15 @@ import MongoKitten
 
 extension DatabaseQuery.Sort.Direction
 {
-  func makeMongoDirection() throws -> SortOrder
+  func makeMongoDirection() throws -> Sorting.Order
   {
     switch self
     {
       case .ascending:
-        return .forward
+        return .ascending
       case .descending:
-        return .reverse
-      case let .custom(order as SortOrder):
+        return .descending
+      case let .custom(order as Sorting.Order):
         return order
       case .custom:
         throw FluentMongoError.unsupportedCustomSort

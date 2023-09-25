@@ -63,7 +63,7 @@ extension FluentMongoDatabase
 
             for key in indexKeys
             {
-              keys[key] = SortOrder.forward.hashValue
+              keys[key] = Sorting.Order.ascending.rawValue
             }
 
             var index = CreateIndexes.Index(

@@ -15,14 +15,13 @@
  * ----------------------------------------------------------- */
 
 import FluentKit
-import Foundation
 import MongoKitten
 
 extension DatabaseQuery
 {
   func makeMongoDBSort() throws -> MongoKitten.Sort?
   {
-    var sortSpec = [(String, SortOrder)]()
+    var sortSpec = [(String, Sorting.Order)]()
 
     for sort in sorts
     {
@@ -41,17 +40,7 @@ extension DatabaseQuery
       return nil
     }
 
-    let sorted: [(String, Sorting.Order)] = sortSpec.map
-    {
-      switch $0.1
-      {
-        case .forward:
-          ($0.0, Sorting.Order.ascending)
-        case .reverse:
-          ($0.0, Sorting.Order.descending)
-      }
-    }
-    return MongoKitten.Sort(Sorting(sorted))
+    return MongoKitten.Sort(Sorting(sortSpec))
   }
 
   func makeMongoDBFilter(aggregate: Bool) throws -> Document
