@@ -22,8 +22,8 @@ extension FluentMongoDatabase
 {
   func join(
     query: DatabaseQuery,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
     do
     {
@@ -35,35 +35,29 @@ extension FluentMongoDatabase
       { document in
         onOutput(document.databaseOutput(using: decoder))
       }
-
-      return eventLoop.makeSucceededFuture(())
     }
     catch
     {
-      return eventLoop.makeFailedFuture(error)
+      throw error
     }
   }
 
   func joinCount(
     query: DatabaseQuery,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
     do
     {
       let stages = try query.makeAggregatePipeline()
       logger.debug("fluent-mongo join-count stages=\(stages)")
-      let pipeline = AggregateBuilderPipeline(stages: stages, collection: raw[query.schema]).forEach
-      { count in
-        let reply = _MongoDBAggregateResponse(value: count, decoder: BSONDecoder())
-        return onOutput(reply)
-      }
-
-      return eventLoop.makeSucceededFuture(())
+      let count = try await AggregateBuilderPipeline(stages: stages, collection: raw[query.schema]).count()
+      let reply = _MongoDBAggregateResponse(value: count, decoder: BSONDecoder())
+      return onOutput(reply)
     }
     catch
     {
-      return eventLoop.makeFailedFuture(error)
+      throw error
     }
   }
 }

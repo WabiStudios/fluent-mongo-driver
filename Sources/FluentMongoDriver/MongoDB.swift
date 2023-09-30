@@ -35,25 +35,25 @@ struct FluentMongoDatabase: Database, MongoDatabaseRepresentable
 
   func execute(
     query: DatabaseQuery,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
     switch query.action
     {
       case .create:
-        return create(query: query, onOutput: onOutput)
+        return try await create(query: query, onOutput: onOutput)
       case let .aggregate(aggregate):
-        return self.aggregate(query: query, aggregate: aggregate, onOutput: onOutput)
+        return try await self.aggregate(query: query, aggregate: aggregate, onOutput: onOutput)
       case .read where query.joins.isEmpty:
-        return read(query: query, onOutput: onOutput)
+        return try await read(query: query, onOutput: onOutput)
       case .read:
-        return join(query: query, onOutput: onOutput)
+        return try await join(query: query, onOutput: onOutput)
       case .update:
-        return update(query: query, onOutput: onOutput)
+        return try await update(query: query, onOutput: onOutput)
       case .delete:
-        return delete(query: query, onOutput: onOutput)
+        return try await delete(query: query, onOutput: onOutput)
       case .custom:
-        return eventLoop.makeFailedFuture(FluentMongoError.unsupportedCustomAction)
+        throw FluentMongoError.unsupportedCustomAction
     }
   }
 
@@ -65,6 +65,28 @@ struct FluentMongoDatabase: Database, MongoDatabaseRepresentable
   func withConnection<T>(_ closure: @escaping (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T>
   {
     closure(self)
+  }
+
+  func execute(query: DatabaseQuery, onOutput: @escaping (DatabaseOutput) -> Void) -> EventLoopFuture<Void>
+  {
+    eventLoop.makeFutureWithTask
+    {
+      try await execute(query: query)
+      { output in
+        onOutput(output)
+      }
+    }
+  }
+
+  func transaction<T>(_ closure: @escaping (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T>
+  {
+    eventLoop.makeFutureWithTask
+    {
+      try await transaction
+      { trnsDB in
+        try await closure(trnsDB).get()
+      }
+    }
   }
 }
 

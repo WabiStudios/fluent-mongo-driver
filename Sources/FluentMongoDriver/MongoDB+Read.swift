@@ -22,8 +22,8 @@ extension FluentMongoDatabase
 {
   func read(
     query: DatabaseQuery,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
     do
     {
@@ -69,12 +69,10 @@ extension FluentMongoDatabase
         wrapped[query.schema] = document
         onOutput(wrapped.databaseOutput(using: decoder))
       }
-
-      return eventLoop.makeSucceededFuture(())
     }
     catch
     {
-      return eventLoop.makeFailedFuture(error)
+      throw error
     }
   }
 }

@@ -20,49 +20,39 @@ import MongoKitten
 
 extension FluentMongoDatabase
 {
-  func transaction<T>(_ closure: @escaping (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T>
+  func transaction<T>(
+    _ closure: @Sendable @escaping (Database) async throws -> T
+  ) async throws -> T
   {
     guard !inTransaction
-    else
-    {
-      return closure(self)
-    }
+    else { return try await closure(self) }
 
-    return eventLoop.makeFutureWithTask
+    do
     {
+      let transactionDatabase = try await raw.startTransaction(autoCommitChanges: false)
+      let database = FluentMongoDatabase(
+        cluster: cluster,
+        raw: transactionDatabase,
+        context: context,
+        inTransaction: true
+      )
+      
+      
       do
       {
-        let transactionDatabase = try await raw.startTransaction(autoCommitChanges: false)
-        let database = FluentMongoDatabase(
-          cluster: self.cluster,
-          raw: transactionDatabase,
-          context: self.context,
-          inTransaction: true
-        )
-
-        return try await closure(database).flatMap
-        { value in
-
-          eventLoop.makeFutureWithTask
-          {
-            try await transactionDatabase.commit()
-            return value
-          }
-        }
-        .flatMapError
-        { error in
-          eventLoop.makeFutureWithTask
-          {
-            try await transactionDatabase.abort()
-            throw error
-          }
-        }
-        .get()
+        let transacted = try await closure(database)
+        try await transactionDatabase.commit()
+        return transacted
       }
       catch
       {
-        return try await eventLoop.makeFailedFuture(error).get()
+        try await transactionDatabase.abort()
+        throw error
       }
+    }
+    catch
+    {
+      throw error
     }
   }
 }

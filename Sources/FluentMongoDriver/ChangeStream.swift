@@ -19,17 +19,11 @@ import MongoKitten
 
 public extension Model
 {
-  static func watch(on database: Database, options: ChangeStreamOptions = .init()) -> EventLoopFuture<ChangeStream<Self>>
+  static func watch(on database: Database, options: ChangeStreamOptions = .init()) async throws -> ChangeStream<Self>
   {
     guard let mongodb = database as? MongoDatabaseRepresentable
-    else
-    {
-      return database.eventLoop.makeFailedFuture(FluentMongoError.notMongoDB)
-    }
+    else { throw FluentMongoError.notMongoDB }
 
-    return database.eventLoop.makeFutureWithTask
-    {
-      try await mongodb.raw[Self.schema].watch(options: options, type: Self.self)
-    }
+    return try await mongodb.raw[Self.schema].watch(options: options, type: Self.self)
   }
 }

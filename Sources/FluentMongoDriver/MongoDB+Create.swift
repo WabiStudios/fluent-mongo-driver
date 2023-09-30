@@ -22,35 +22,23 @@ extension FluentMongoDatabase
 {
   func create(
     query: DatabaseQuery,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
-    do
-    {
-      let documents = try query.makeValueDocuments()
+    let documents = try query.makeValueDocuments()
 
-      logger.debug("fluent-mongo insert entities=\(documents)")
+    logger.debug("fluent-mongo insert entities=\(documents)")
 
-      return eventLoop.makeFutureWithTask
-      {
-        let reply = try await raw[query.schema]
-          .insertMany(documents)
+    let reply = try await raw[query.schema].insertMany(documents)
+    guard reply.ok == 1,
+          reply.insertCount == documents.count
+    else { throw FluentMongoError.insertFailed }
 
-        guard reply.ok == 1,
-              reply.insertCount == documents.count
-        else { throw FluentMongoError.insertFailed }
+    let response = _MongoDBAggregateResponse(
+      value: reply.insertCount,
+      decoder: BSONDecoder()
+    )
 
-        let response = _MongoDBAggregateResponse(
-          value: reply.insertCount,
-          decoder: BSONDecoder()
-        )
-
-        onOutput(response)
-      }
-    }
-    catch
-    {
-      return eventLoop.makeFailedFuture(error)
-    }
+    onOutput(response)
   }
 }

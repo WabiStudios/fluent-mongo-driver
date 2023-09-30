@@ -23,58 +23,55 @@ extension FluentMongoDatabase
   func aggregate(
     query: DatabaseQuery,
     aggregate: DatabaseQuery.Aggregate,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
     guard case let .field(field, method) = aggregate
-    else
-    {
-      return eventLoop.makeFailedFuture(FluentMongoError.unsupportedCustomAggregate)
-    }
+    else { throw FluentMongoError.unsupportedCustomAggregate }
 
     switch method
     {
       case .count where query.joins.isEmpty:
-        return count(query: query, onOutput: onOutput)
+        return try await count(query: query, onOutput: onOutput)
       case .count:
-        return joinCount(query: query, onOutput: onOutput)
+        return try await joinCount(query: query, onOutput: onOutput)
       case .sum:
-        return group(
+        return try await group(
           query: query,
           mongoOperator: "$sum",
           field: field,
           onOutput: onOutput
         )
       case .average:
-        return group(
+        return try await group(
           query: query,
           mongoOperator: "$avg",
           field: field,
           onOutput: onOutput
         )
       case .maximum:
-        return group(
+        return try await group(
           query: query,
           mongoOperator: "$max",
           field: field,
           onOutput: onOutput
         )
       case .minimum:
-        return group(
+        return try await group(
           query: query,
           mongoOperator: "$min",
           field: field,
           onOutput: onOutput
         )
       case .custom:
-        return eventLoop.makeFailedFuture(FluentMongoError.unsupportedCustomAggregate)
+        throw FluentMongoError.unsupportedCustomAggregate
     }
   }
 
   private func count(
     query: DatabaseQuery,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
     do
     {
@@ -83,30 +80,27 @@ extension FluentMongoDatabase
 
       logger.debug("fluent-mongo count condition=\(condition)")
 
-      return eventLoop.makeFutureWithTask
+      let counted = try await cluster.next(for: .writable)
+        .executeCodable(
+          count,
+          decodeAs: CountCommand.self,
+          namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
+          sessionId: nil
+        )
+
+      if let queried = counted.query
       {
-        let counted = try await cluster.next(for: .writable)
-          .executeCodable(
-            count,
-            decodeAs: CountCommand.self,
-            namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
-            sessionId: nil
-          )
+        let reply = _MongoDBAggregateResponse(
+          value: queried,
+          decoder: BSONDecoder()
+        )
 
-        if let queried = counted.query
-        {
-          let reply = _MongoDBAggregateResponse(
-            value: queried,
-            decoder: BSONDecoder()
-          )
-
-          return onOutput(reply)
-        }
+        return onOutput(reply)
       }
     }
     catch
     {
-      return eventLoop.makeFailedFuture(error)
+      throw error
     }
   }
 
@@ -114,8 +108,8 @@ extension FluentMongoDatabase
     query: DatabaseQuery,
     mongoOperator: String,
     field: DatabaseQuery.Field,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
     do
     {
@@ -130,22 +124,19 @@ extension FluentMongoDatabase
         ])
       logger.debug("fluent-mongo find-group operation=\(mongoOperator) field=\(field) condition=\(condition)")
 
-      return eventLoop.makeFutureWithTask
-      {
-        try await find.firstResult().map
-        { result in
-          let res = _MongoDBAggregateResponse(
-            value: result["n"] ?? Null(),
-            decoder: BSONDecoder()
-          )
+      try await find.firstResult().map
+      { result in
+        let res = _MongoDBAggregateResponse(
+          value: result["n"] ?? Null(),
+          decoder: BSONDecoder()
+        )
 
-          onOutput(res)
-        }
+        onOutput(res)
       }
     }
     catch
     {
-      return eventLoop.makeFailedFuture(error)
+      throw error
     }
   }
 }

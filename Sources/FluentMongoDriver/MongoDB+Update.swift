@@ -22,8 +22,8 @@ extension FluentMongoDatabase
 {
   func update(
     query: DatabaseQuery,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
+    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+  ) async throws
   {
     do
     {
@@ -47,27 +47,24 @@ extension FluentMongoDatabase
       let command = UpdateCommand(updates: updates, inCollection: query.schema)
       logger.debug("fluent-mongo update filter=\(filter) updates=\(update)")
 
-      return eventLoop.makeFutureWithTask
-      {
-        try await cluster.next(for: .writable)
-          .executeCodable(
-            command,
-            decodeAs: UpdateCommand.self,
-            namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
-            sessionId: nil
-          ).updates.forEach
-          { reply in
-            let reply = _MongoDBAggregateResponse(
-              value: reply.update,
-              decoder: BSONDecoder()
-            )
-            onOutput(reply)
-          }
-      }
+      try await cluster.next(for: .writable)
+        .executeCodable(
+          command,
+          decodeAs: UpdateCommand.self,
+          namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
+          sessionId: nil
+        ).updates.forEach
+        { reply in
+          let reply = _MongoDBAggregateResponse(
+            value: reply.update,
+            decoder: BSONDecoder()
+          )
+          onOutput(reply)
+        }
     }
     catch
     {
-      return eventLoop.makeFailedFuture(error)
+      throw error
     }
   }
 }

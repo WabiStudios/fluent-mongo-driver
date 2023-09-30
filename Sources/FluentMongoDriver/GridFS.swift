@@ -28,36 +28,20 @@ extension MongoDatabaseRepresentable
 
 public extension GridFSFile
 {
-  static func find(_ id: Primitive, on database: Database) -> EventLoopFuture<GridFSFile?>
+  static func find(_ id: Primitive, on database: Database) async throws -> GridFSFile?
   {
     guard let mongodb = database as? MongoDatabaseRepresentable
-    else
-    {
-      return database.eventLoop.makeFailedFuture(FluentMongoError.notMongoDB)
-    }
+    else { throw FluentMongoError.notMongoDB }
 
-    return database.eventLoop.makeFutureWithTask
-    {
-      try await mongodb._gridFS.findFile(byId: id)
-    }
+    return try await mongodb._gridFS.findFile(byId: id)
   }
 
-  static func read(_ id: Primitive, on database: Database) -> EventLoopFuture<ByteBuffer?>
+  static func read(_ id: Primitive, on database: Database) async throws -> ByteBuffer?
   {
-    find(id, on: database).flatMap
-    { file in
-      guard let file
-      else
-      {
-        return database.eventLoop.makeSucceededFuture(nil)
-      }
+    guard let file = try await find(id, on: database)
+    else { throw FluentMongoError.fileNotFound }
 
-      // Map to optional
-      return database.eventLoop.makeFutureWithTask
-      {
-        try await file.reader.readByteBuffer()
-      }
-    }
+    return try await file.reader.readByteBuffer()
   }
 
   static func upload(
@@ -65,20 +49,14 @@ public extension GridFSFile
     named filename: String? = nil,
     metadata: Document? = nil,
     on database: Database
-  ) -> EventLoopFuture<GridFSFile>
+  ) async throws -> GridFSFile
   {
     guard let mongodb = database as? MongoDatabaseRepresentable
-    else
-    {
-      return database.eventLoop.makeFailedFuture(FluentMongoError.notMongoDB)
-    }
+    else { throw FluentMongoError.notMongoDB }
 
-    return database.eventLoop.makeFutureWithTask
-    {
-      let writer = try await GridFSFileWriter(toBucket: mongodb._gridFS)
-      try await writer.write(data: buffer)
-      
-      return try await writer.finalize(filename: filename, metadata: metadata)
-    }
+    let writer = try await GridFSFileWriter(toBucket: mongodb._gridFS)
+    try await writer.write(data: buffer)
+
+    return try await writer.finalize(filename: filename, metadata: metadata)
   }
 }

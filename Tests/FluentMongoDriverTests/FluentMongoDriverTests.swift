@@ -245,7 +245,7 @@ final class FluentMongoDriverTests: XCTestCase
     XCTAssertEqual(try Entity.query(on: db).count().wait(), 0)
   }
 
-  func testGridFS() throws
+  func testGridFS() async throws
   {
     struct JSON: Codable, Equatable
     {
@@ -256,21 +256,14 @@ final class FluentMongoDriverTests: XCTestCase
     let writtenData = try JSONEncoder().encode(writtenEntity)
     var buffer = ByteBufferAllocator().buffer(capacity: writtenData.count)
     buffer.writeBytes(writtenData)
-    let writtenFile = try GridFSFile.upload(buffer, on: db).wait()
 
-    guard let readBuffer = try GridFSFile.read(writtenFile._id, on: db).wait()
-    else
-    {
-      XCTFail("File not found")
-      return
-    }
+    let writtenFile = try await GridFSFile.upload(buffer, on: db)
+
+    guard let readBuffer = try await GridFSFile.read(writtenFile._id, on: db)
+    else { XCTFail("File not found"); return }
 
     guard let readBytes = readBuffer.getBytes(at: 0, length: writtenData.count)
-    else
-    {
-      XCTFail("Mismatching data")
-      return
-    }
+    else { XCTFail("Mismatching data"); return }
 
     let readEntity = try JSONDecoder().decode(JSON.self, from: Data(readBytes))
     XCTAssertEqual(writtenEntity, readEntity)
