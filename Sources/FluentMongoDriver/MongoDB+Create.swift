@@ -39,6 +39,6 @@ extension FluentMongoDatabase
       decoder: BSONDecoder()
     )
 
-    onOutput(response)
+    return onOutput(response)
   }
 }

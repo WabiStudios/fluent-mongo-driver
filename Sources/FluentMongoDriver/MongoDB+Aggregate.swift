@@ -131,7 +131,7 @@ extension FluentMongoDatabase
           decoder: BSONDecoder()
         )
 
-        onOutput(res)
+        return onOutput(res)
       }
     }
     catch
