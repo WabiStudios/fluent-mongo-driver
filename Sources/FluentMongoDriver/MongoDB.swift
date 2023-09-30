@@ -75,17 +75,29 @@ struct FluentMongoDatabase: Database, MongoDatabaseRepresentable
     switch query.action
     {
       case .create:
-        return eventLoop.makeFutureWithTask { try await create(query: query) { output in onOutput(output) } }
+        return eventLoop.makeFutureWithTask
+        { try await create(query: query) { output in onOutput(output) } }
+        .transform(to: ())
       case let .aggregate(aggregate):
-        return eventLoop.makeFutureWithTask { try await self.aggregate(query: query, aggregate: aggregate) { output in onOutput(output) } }
+        return eventLoop.makeFutureWithTask
+        { try await self.aggregate(query: query, aggregate: aggregate) { output in onOutput(output) } }
+        .transform(to: ())
       case .read where query.joins.isEmpty:
-        return eventLoop.makeFutureWithTask { try await read(query: query) { output in onOutput(output) } }
+        return eventLoop.makeFutureWithTask
+        { try await read(query: query) { output in onOutput(output) } }
+        .transform(to: ())
       case .read:
-        return eventLoop.makeFutureWithTask { try await join(query: query) { output in onOutput(output) } }
+        return eventLoop.makeFutureWithTask
+        { try await join(query: query) { output in onOutput(output) } }
+        .transform(to: ())
       case .update:
-        return eventLoop.makeFutureWithTask { try await update(query: query) { output in onOutput(output) } }
+        return eventLoop.makeFutureWithTask
+        { try await update(query: query) { output in onOutput(output) } }
+        .transform(to: ())
       case .delete:
-        return eventLoop.makeFutureWithTask { try await delete(query: query) { output in onOutput(output) } }
+        return eventLoop.makeFutureWithTask
+        { try await delete(query: query) { output in onOutput(output) } }
+        .transform(to: ())
       case .custom:
         return eventLoop.makeFailedFuture(FluentMongoError.unsupportedCustomAction)
     }
