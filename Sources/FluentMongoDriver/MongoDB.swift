@@ -67,14 +67,27 @@ struct FluentMongoDatabase: Database, MongoDatabaseRepresentable
     closure(self)
   }
 
-  func execute(query: DatabaseQuery, onOutput: @escaping (DatabaseOutput) -> Void) -> EventLoopFuture<Void>
+  func execute(
+    query: DatabaseQuery,
+    onOutput: @escaping (DatabaseOutput) -> Void
+  ) -> EventLoopFuture<Void>
   {
-    eventLoop.makeFutureWithTask
+    switch query.action
     {
-      try await execute(query: query)
-      { output in
-        onOutput(output)
-      }
+      case .create:
+        return eventLoop.makeFutureWithTask { try await create(query: query) { output in onOutput(output) } }
+      case let .aggregate(aggregate):
+        return eventLoop.makeFutureWithTask { try await self.aggregate(query: query, aggregate: aggregate) { output in onOutput(output) } }
+      case .read where query.joins.isEmpty:
+        return eventLoop.makeFutureWithTask { try await read(query: query) { output in onOutput(output) } }
+      case .read:
+        return eventLoop.makeFutureWithTask { try await join(query: query) { output in onOutput(output) } }
+      case .update:
+        return eventLoop.makeFutureWithTask { try await update(query: query) { output in onOutput(output) } }
+      case .delete:
+        return eventLoop.makeFutureWithTask { try await delete(query: query) { output in onOutput(output) } }
+      case .custom:
+        return eventLoop.makeFailedFuture(FluentMongoError.unsupportedCustomAction)
     }
   }
 
