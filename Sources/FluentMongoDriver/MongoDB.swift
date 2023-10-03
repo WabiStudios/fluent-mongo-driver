@@ -74,7 +74,7 @@ struct FluentMongoConfiguration: DatabaseConfiguration {
 
     func makeDriver(for databases: Databases) -> DatabaseDriver {
         do {
-            let cluster = try MongoCluster(lazyConnectingTo: self.settings, on: databases.eventLoopGroup)
+            let cluster = try MongoCluster(lazyConnectingTo: self.settings, on: MongoCluster._newEventLoopGroup())
             return FluentMongoDriver(
                 cluster: cluster,
                 targetDatabase: self.targetDatabase
