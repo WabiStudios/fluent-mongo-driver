@@ -23,28 +23,36 @@ extension FluentMongoDatabase
 {
   func execute(schema: DatabaseSchema) -> EventLoopFuture<Void>
   {
+    let promise = eventLoop.makePromise(of: Void.self)
+
     switch schema.action
     {
       case .create, .update:
-        return update(schema: schema)
+        promise.completeWithTask
+        {
+          try await update(schema: schema)
+        }
       case .delete:
-        return delete(schema: schema)
+        promise.completeWithTask
+        {
+          try await delete(schema: schema)
+        }
     }
+
+    return promise.futureResult
   }
 
-  private func update(schema: DatabaseSchema) -> EventLoopFuture<Void>
+  private func update(schema: DatabaseSchema) async throws
   {
     do
     {
-      var futures = [EventLoopFuture<Void>]()
+      var schematic = [MongoServerReply]()
 
       nextConstraint: for constraint in schema.createConstraints
       {
         guard case let .constraint(algorithm, _) = constraint
-        else
-        {
-          continue nextConstraint
-        }
+        else { continue nextConstraint }
+
         switch algorithm
         {
           case let .unique(fields), let .compositeIdentifier(fields):
@@ -78,36 +86,32 @@ extension FluentMongoDatabase
               indexes: [index]
             )
 
-            let createdIndex = eventLoop.makeFutureWithTask
-            {
-              let _ = try await cluster.next(for: .writable)
-                .executeCodable(
-                  createIndexes,
-                  decodeAs: InsertCommand.self,
-                  namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
-                  sessionId: nil
-                )
-            }
+            let createdIndex = try await cluster.next(for: .writable).executeEncodable(
+              createIndexes,
+              namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
+              sessionId: nil
+            )
 
-            futures.append(createdIndex)
+            schematic.append(createdIndex)
           case .foreignKey, .custom:
             continue nextConstraint
         }
       }
 
-      return EventLoopFuture.andAllSucceed(futures, on: eventLoop)
+      try schematic.forEach
+      { scheme in
+
+        try scheme.assertOK()
+      }
     }
     catch
     {
-      return eventLoop.makeFailedFuture(error)
+      throw error
     }
   }
 
-  private func delete(schema: DatabaseSchema) -> EventLoopFuture<Void>
+  private func delete(schema: DatabaseSchema) async throws
   {
-    eventLoop.makeFutureWithTask
-    {
-      try await raw[schema.schema].drop()
-    }
+    try await raw[schema.schema].drop()
   }
 }

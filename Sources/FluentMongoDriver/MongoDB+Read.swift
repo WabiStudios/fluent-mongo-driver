@@ -22,7 +22,7 @@ extension FluentMongoDatabase
 {
   func read(
     query: DatabaseQuery,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+    onOutput: @escaping (DatabaseOutput) -> Void
   ) async throws
   {
     do
@@ -63,12 +63,12 @@ extension FluentMongoDatabase
 
       logger.debug("fluent-mongo find command=\(find.command)")
       let decoder = BSONDecoder()
-      find.forEach
+      return try await find.forEach
       { document in
         var wrapped = Document()
         wrapped[query.schema] = document
-        onOutput(wrapped.databaseOutput(using: decoder))
-      }
+        return onOutput(wrapped.databaseOutput(using: decoder))
+      }.value
     }
     catch
     {

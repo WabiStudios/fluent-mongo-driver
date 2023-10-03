@@ -22,7 +22,7 @@ extension FluentMongoDatabase
 {
   func join(
     query: DatabaseQuery,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+    onOutput: @escaping (DatabaseOutput) -> Void
   ) async throws
   {
     do
@@ -31,10 +31,10 @@ extension FluentMongoDatabase
       let decoder = BSONDecoder()
       logger.debug("fluent-mongo join stages=\(stages)")
 
-      AggregateBuilderPipeline(stages: stages, collection: raw[query.schema]).forEach
+      return try await AggregateBuilderPipeline(stages: stages, collection: raw[query.schema]).forEach
       { document in
         onOutput(document.databaseOutput(using: decoder))
-      }
+      }.value
     }
     catch
     {
@@ -44,7 +44,7 @@ extension FluentMongoDatabase
 
   func joinCount(
     query: DatabaseQuery,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+    onOutput: @escaping (DatabaseOutput) -> Void
   ) async throws
   {
     do

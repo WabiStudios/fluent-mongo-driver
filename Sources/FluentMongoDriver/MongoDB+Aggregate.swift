@@ -23,7 +23,7 @@ extension FluentMongoDatabase
   func aggregate(
     query: DatabaseQuery,
     aggregate: DatabaseQuery.Aggregate,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+    onOutput: @escaping (DatabaseOutput) -> Void
   ) async throws
   {
     guard case let .field(field, method) = aggregate
@@ -70,7 +70,7 @@ extension FluentMongoDatabase
 
   private func count(
     query: DatabaseQuery,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+    onOutput: @escaping (DatabaseOutput) -> Void
   ) async throws
   {
     do
@@ -83,20 +83,17 @@ extension FluentMongoDatabase
       let counted = try await cluster.next(for: .writable)
         .executeCodable(
           count,
-          decodeAs: CountCommand.self,
+          decodeAs: CountReply.self,
           namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
           sessionId: nil
         )
 
-      if let queried = counted.query
-      {
-        let reply = _MongoDBAggregateResponse(
-          value: queried,
-          decoder: BSONDecoder()
-        )
-
-        return onOutput(reply)
-      }
+      let reply = _MongoDBAggregateResponse(
+        value: counted.count,
+        decoder: BSONDecoder()
+      )
+      
+      return onOutput(reply)
     }
     catch
     {
@@ -108,7 +105,7 @@ extension FluentMongoDatabase
     query: DatabaseQuery,
     mongoOperator: String,
     field: DatabaseQuery.Field,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+    onOutput: @escaping (DatabaseOutput) -> Void
   ) async throws
   {
     do
@@ -124,15 +121,14 @@ extension FluentMongoDatabase
         ])
       logger.debug("fluent-mongo find-group operation=\(mongoOperator) field=\(field) condition=\(condition)")
 
-      try await find.firstResult().map
-      { result in
-        let res = _MongoDBAggregateResponse(
-          value: result["n"] ?? Null(),
-          decoder: BSONDecoder()
-        )
+      let result = try await find.firstResult()
 
-        return onOutput(res)
-      }
+      let res = _MongoDBAggregateResponse(
+        value: result?["n"] ?? Null(),
+        decoder: BSONDecoder()
+      )
+
+      return onOutput(res)
     }
     catch
     {

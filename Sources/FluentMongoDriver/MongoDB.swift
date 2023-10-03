@@ -27,7 +27,7 @@ public extension DatabaseID
 }
 
 struct FluentMongoDatabase: Database, MongoDatabaseRepresentable
-{
+{  
   let cluster: MongoCluster
   let raw: MongoDatabase
   let context: DatabaseContext
@@ -35,83 +35,65 @@ struct FluentMongoDatabase: Database, MongoDatabaseRepresentable
 
   func execute(
     query: DatabaseQuery,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
-  ) async throws
+    onOutput: @escaping (DatabaseOutput) -> Void
+  ) -> EventLoopFuture<Void>
   {
+    let promise = eventLoop.makePromise(of: Void.self)
+
     switch query.action
     {
       case .create:
-        return try await create(query: query, onOutput: onOutput)
+        promise.completeWithTask
+        {
+          try await create(query: query, onOutput: onOutput)
+        }
       case let .aggregate(aggregate):
-        return try await self.aggregate(query: query, aggregate: aggregate, onOutput: onOutput)
+        promise.completeWithTask
+        {
+          try await self.aggregate(query: query, aggregate: aggregate, onOutput: onOutput)
+        }
       case .read where query.joins.isEmpty:
-        return try await read(query: query, onOutput: onOutput)
+        promise.completeWithTask
+        {
+          try await read(query: query, onOutput: onOutput)
+        }
       case .read:
-        return try await join(query: query, onOutput: onOutput)
+        promise.completeWithTask
+        {
+          try await join(query: query, onOutput: onOutput)
+        }
       case .update:
-        return try await update(query: query, onOutput: onOutput)
+        promise.completeWithTask
+        {
+          try await update(query: query, onOutput: onOutput)
+        }
       case .delete:
-        return try await delete(query: query, onOutput: onOutput)
+        promise.completeWithTask
+        {
+          try await delete(query: query, onOutput: onOutput)
+        }
       case .custom:
-        throw FluentMongoError.unsupportedCustomAction
+        promise.fail(FluentMongoError.unsupportedCustomAction)
     }
+
+    return promise.futureResult
   }
 
   func execute(enum _: DatabaseEnum) -> EventLoopFuture<Void>
   {
-    eventLoop.makeSucceededFuture(())
+    let promise = eventLoop.makePromise(of: Void.self)
+
+    promise.completeWithTask
+    {
+      try await raw.pool.next(for: .writable).eventLoop.makeSucceededFuture(()).get()
+    }
+
+    return promise.futureResult
   }
 
   func withConnection<T>(_ closure: @escaping (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T>
   {
     closure(self)
-  }
-
-  func execute(
-    query: DatabaseQuery,
-    onOutput: @escaping (DatabaseOutput) -> Void
-  ) -> EventLoopFuture<Void>
-  {
-    switch query.action
-    {
-      case .create:
-        return eventLoop.makeFutureWithTask
-        { try await create(query: query) { output in onOutput(output) } }
-        .transform(to: ())
-      case let .aggregate(aggregate):
-        return eventLoop.makeFutureWithTask
-        { try await self.aggregate(query: query, aggregate: aggregate) { output in onOutput(output) } }
-        .transform(to: ())
-      case .read where query.joins.isEmpty:
-        return eventLoop.makeFutureWithTask
-        { try await read(query: query) { output in onOutput(output) } }
-        .transform(to: ())
-      case .read:
-        return eventLoop.makeFutureWithTask
-        { try await join(query: query) { output in onOutput(output) } }
-        .transform(to: ())
-      case .update:
-        return eventLoop.makeFutureWithTask
-        { try await update(query: query) { output in onOutput(output) } }
-        .transform(to: ())
-      case .delete:
-        return eventLoop.makeFutureWithTask
-        { try await delete(query: query) { output in onOutput(output) } }
-        .transform(to: ())
-      case .custom:
-        return eventLoop.makeFailedFuture(FluentMongoError.unsupportedCustomAction)
-    }
-  }
-
-  func transaction<T>(_ closure: @escaping (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T>
-  {
-    eventLoop.makeFutureWithTask
-    {
-      try await transaction
-      { trnsDB in
-        try await closure(trnsDB).get()
-      }
-    }
   }
 }
 

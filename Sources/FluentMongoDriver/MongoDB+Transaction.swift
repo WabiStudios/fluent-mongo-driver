@@ -20,14 +20,14 @@ import MongoKitten
 
 extension FluentMongoDatabase
 {
-  func transaction<T>(
-    _ closure: @Sendable @escaping (Database) async throws -> T
-  ) async throws -> T
+  func transaction<T>(_ closure: @escaping (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T>
   {
     guard !inTransaction
-    else { return try await closure(self) }
+    else { return closure(self) }
 
-    do
+    let promise = eventLoop.makePromise(of: T.self)
+
+    promise.completeWithTask
     {
       let transactionDatabase = try await raw.startTransaction(autoCommitChanges: false)
       let database = FluentMongoDatabase(
@@ -36,13 +36,12 @@ extension FluentMongoDatabase
         context: context,
         inTransaction: true
       )
-      
-      
+
       do
       {
-        let transacted = try await closure(database)
+        let result = try await closure(database).get()
         try await transactionDatabase.commit()
-        return transacted
+        return result
       }
       catch
       {
@@ -50,9 +49,7 @@ extension FluentMongoDatabase
         throw error
       }
     }
-    catch
-    {
-      throw error
-    }
+
+    return promise.futureResult
   }
 }

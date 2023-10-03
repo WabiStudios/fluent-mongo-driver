@@ -22,7 +22,7 @@ extension FluentMongoDatabase
 {
   func update(
     query: DatabaseQuery,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+    onOutput: @escaping (DatabaseOutput) -> Void
   ) async throws
   {
     do
@@ -31,7 +31,7 @@ extension FluentMongoDatabase
       let update = try query.makeValueDocuments()
 
       let updates = update.map
-      { document -> UpdateCommand.UpdateRequest in
+      { document in
         var update = UpdateCommand.UpdateRequest(
           where: filter,
           to: [
@@ -46,21 +46,19 @@ extension FluentMongoDatabase
 
       let command = UpdateCommand(updates: updates, inCollection: query.schema)
       logger.debug("fluent-mongo update filter=\(filter) updates=\(update)")
+      let modified = try await cluster.next(for: .writable).executeCodable(
+        command,
+        decodeAs: UpdateReply.self,
+        namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
+        sessionId: nil
+      )
 
-      try await cluster.next(for: .writable)
-        .executeCodable(
-          command,
-          decodeAs: UpdateCommand.self,
-          namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
-          sessionId: nil
-        ).updates.forEach
-        { reply in
-          let reply = _MongoDBAggregateResponse(
-            value: reply.update,
-            decoder: BSONDecoder()
-          )
-          onOutput(reply)
-        }
+      let reply = _MongoDBAggregateResponse(
+        value: modified.updatedCount,
+        decoder: BSONDecoder()
+      )
+
+      return onOutput(reply)
     }
     catch
     {

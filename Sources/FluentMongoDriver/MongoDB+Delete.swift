@@ -22,7 +22,7 @@ extension FluentMongoDatabase
 {
   func delete(
     query: DatabaseQuery,
-    onOutput: @Sendable @escaping (DatabaseOutput) -> Void
+    onOutput: @escaping (DatabaseOutput) -> Void
   ) async throws
   {
     do
@@ -47,22 +47,19 @@ extension FluentMongoDatabase
       )
 
       logger.debug("fluent-mongo delete \(deleteLimit) filter=\(filter)")
-      try await cluster.next(for: .writable)
-        .executeCodable(
-          command,
-          decodeAs: DeleteCommand.self,
-          namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
-          sessionId: nil
-        )
-        .deletes.forEach
-        { deletes in
-          let reply = _MongoDBAggregateResponse(
-            value: deletes.query,
-            decoder: BSONDecoder()
-          )
+      let deletion = try await cluster.next(for: .writable).executeCodable(
+        command,
+        decodeAs: DeleteReply.self,
+        namespace: MongoNamespace(to: "$cmd", inDatabase: raw.name),
+        sessionId: nil
+      )
 
-          return onOutput(reply)
-        }
+      let reply = _MongoDBAggregateResponse(
+        value: deletion.deletes,
+        decoder: BSONDecoder()
+      )
+
+      return onOutput(reply)
     }
     catch
     {
